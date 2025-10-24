@@ -1,0 +1,7 @@
+_target_: playground.models.random_mask.RandomMaskingTransformer
+d_model: 128
+nhead: 4
+d_hid: 512
+n_layers: 6
+dropout: 0.2
+mask_prob: 0.3

@@ -1,0 +1,20 @@
+name: playground
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pytorch>=2.4
+  - numpy>=1.24
+  - matplotlib>=3.7
+  - tqdm>=4.66
+  - hydra-core=1.*
+  - pip
+  - pip:
+      - omegaconf>=2.3.0
+      - hydra-colorlog
+      - wandb
+      - scipy
+      - hyppo
+      - e . 

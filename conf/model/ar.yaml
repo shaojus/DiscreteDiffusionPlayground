@@ -1,0 +1,6 @@
+_target_: playground.models.ar.AutoregressiveTransformer
+d_model: 128
+nhead: 4
+d_hid: 512
+n_layers: 6
+dropout: 0.2

@@ -1,0 +1,30 @@
+defaults:
+  - _self_
+  - model: md4
+
+seed: 24
+device: ${oc.env:DEVICE,cuda}
+
+data:
+  n_mixes: 8
+  n_bits: 8
+
+train:
+  steps: 20000
+  batch_size: 64
+  lr: 2e-4
+  save_path: ckpts/model.pt
+
+log:
+  every: 100
+
+eval:
+  interval: 1000
+  n_samples: 20000
+  ckpt_path: ckpts/model.pt
+  out_json: logs/metrics.json
+
+wandb:
+  enabled: true
+  project: gm-binary-gen
+  entity: null

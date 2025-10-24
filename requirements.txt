@@ -1,0 +1,13 @@
+# Core
+torch>=2.3        # install the wheel that matches your CUDA/CPU setup
+numpy>=1.24
+matplotlib>=3.7
+tqdm>=4.66
+
+# Config
+omegaconf>=2.3.0
+hydra-core>=1.3.2
+hydra-colorlog>=1.2.0
+
+# Logging / tracking
+wandb>=0.16.0

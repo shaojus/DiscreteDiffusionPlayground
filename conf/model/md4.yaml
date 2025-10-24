@@ -1,0 +1,9 @@
+_target_: playground.models.md4.MD4
+d_model: 128
+nhead: 4
+d_hid: 512
+n_layers: 6
+dropout: 0.2
+use_time_cond: false
+mask_token: 2
+steps: 64
