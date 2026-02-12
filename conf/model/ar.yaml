@@ -4,3 +4,4 @@ nhead: 4
 d_hid: 512
 n_layers: 6
 dropout: 0.2
+order: forward

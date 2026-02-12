@@ -57,11 +57,11 @@ class SigmaCond(nn.Module):
 
 
 class SEDDEncoder(nn.Module):
-    def __init__(self, vocab_size: int, d_model=128, nhead=4, d_ff=512, n_layers=6, max_len=16, dropout=0.0):
+    def __init__(self, vocab_size: int, d_model=128, nhead=4, d_hid=512, n_layers=6, max_len=16, dropout=0.0):
         super().__init__()
         self.vocab_size = int(vocab_size)
         self.pos = PosEnc(self.vocab_size, d_model, max_len)
-        layer = nn.TransformerEncoderLayer(d_model, nhead, d_ff, dropout, batch_first=False)
+        layer = nn.TransformerEncoderLayer(d_model, nhead, d_hid, dropout, batch_first=False)
         self.enc = nn.TransformerEncoder(layer, n_layers)
         self.fc = nn.Linear(d_model, self.vocab_size)
         self.sig_emb = SigmaCond(d_model)
@@ -180,7 +180,7 @@ class SEDD(nn.Module):
     def __init__(self,
                  d_model: int = 128,
                  nhead: int = 4,
-                 d_ff: int = 512,
+                 d_hid: int = 512,
                  n_layers: int = 6,
                  dropout: float = 0.0,
                  max_len: int = 16,
@@ -197,7 +197,7 @@ class SEDD(nn.Module):
         self.mask_id = int(getattr(self.graph, "mask_id", self.vocab_size - 1))
 
         self.model = SEDDEncoder(vocab_size=self.vocab_size,
-                                 d_model=d_model, nhead=nhead, d_ff=d_ff,
+                                 d_model=d_model, nhead=nhead, d_hid=d_hid,
                                  n_layers=n_layers, max_len=max_len, dropout=dropout)
 
         self.noise = LogLinearNoise(eps=noise_eps)

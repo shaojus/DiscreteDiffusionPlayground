@@ -3,7 +3,7 @@ _target_: playground.models.radd.RADD
 # backbone
 d_model: 128
 nhead: 4
-d_ff: 512
+d_hid: 512
 n_layers: 6
 dropout: 0.0
 
@@ -11,7 +11,7 @@ dropout: 0.0
 eps: 1e-3
 
 # sampling (reverse unmasking) controls
-samp_steps: 64
+samp_steps: 16
 samp_strategy: topk     # or: vanilla
 samp_k: null            # e.g., 2
 #samp_k_frac: 0.2        # if set, reveal 20% of remaining per step

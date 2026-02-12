@@ -12,7 +12,7 @@ class RADDEncoder(nn.Module):
         C: int = 2,
         d_model: int = 128,
         nhead: int = 4,
-        d_ff: int = 512,
+        d_hid: int = 512,
         n_layers: int = 6,
         max_len: int = 16,
         dropout: float = 0.0,
@@ -35,7 +35,7 @@ class RADDEncoder(nn.Module):
         self.register_buffer("pe", pe.unsqueeze(0))  # (1, max_len, d_model)
 
         # vanilla TransformerEncoder (batch_first=True)
-        layer = nn.TransformerEncoderLayer(d_model, nhead, d_ff, dropout, batch_first=True)
+        layer = nn.TransformerEncoderLayer(d_model, nhead, d_hid, dropout, batch_first=True)
         self.enc = nn.TransformerEncoder(layer, n_layers)
 
         # head to {0,1}
@@ -196,7 +196,7 @@ class RADD(nn.Module):
         self,
         d_model: int = 128,
         nhead: int = 4,
-        d_ff: int = 512,
+        d_hid: int = 512,
         n_layers: int = 6,
         dropout: float = 0.0,
         max_len: int = 16,
@@ -215,7 +215,7 @@ class RADD(nn.Module):
     ):
         super().__init__()
         self.encoder = RADDEncoder(
-            V=3, C=2, d_model=d_model, nhead=nhead, d_ff=d_ff,
+            V=3, C=2, d_model=d_model, nhead=nhead, d_hid=d_hid,
             n_layers=n_layers, max_len=max_len, dropout=dropout
         )
         self.mask_id = self.encoder.mask_id

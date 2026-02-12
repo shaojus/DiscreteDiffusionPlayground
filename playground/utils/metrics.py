@@ -1,9 +1,8 @@
 import numpy as np
 import torch
-from numpy.random import default_rng
-from scipy.stats import wasserstein_distance
+from scipy.stats import wasserstein_distance, norm
 from hyppo.ksample import MMD, Energy
-from scipy.stats import norm
+import ot
 
 def get_true_samples(ds, n=60_000):
     if hasattr(ds, "dist"):
@@ -15,8 +14,11 @@ def get_true_samples(ds, n=60_000):
     return xy
 
 def _true_cell_mass_grid(ds, edges_x, edges_y):
-    # exact cell mass by integrating the mixture CDF over rectangles
-    # for diagonal Gaussians we can use Normal CDF separability.
+    """
+    Returns Pt[i,j] = P( x in [Ex[i],Ex[i+1]), y in [Ey[j],Ey[j+1]) )
+    for the analytic mixture ds.dist. This is a *cell-mass* grid (sums ~ 1).
+    Assumes diagonal Gaussians (scale_tril is diagonal).
+    """
     mix = ds.dist
     cat = mix.mixture_distribution
     comp = mix.component_distribution
@@ -24,71 +26,87 @@ def _true_cell_mass_grid(ds, edges_x, edges_y):
     loc = comp.loc.detach().cpu().numpy()                   # [K,2]
     scale = comp.scale_tril.detach().cpu().numpy()          # [K,2,2] (diag)
 
-    K = len(pis)
     Ex, Ey = edges_x, edges_y
-    H = np.zeros((len(Ex)-1, len(Ey)-1), dtype=np.float64)
+    H = np.zeros((len(Ex) - 1, len(Ey) - 1), dtype=np.float64)
 
-    # vectorized over grid for speed
-    for k in range(K):
-        mx, my = loc[k,0], loc[k,1]
-        sx, sy = scale[k,0,0], scale[k,1,1]
-        Fx = norm.cdf((Ex - mx)/sx)
-        Fy = norm.cdf((Ey - my)/sy)
+    for k in range(len(pis)):
+        mx, my = loc[k, 0], loc[k, 1]
+        sx, sy = scale[k, 0, 0], scale[k, 1, 1]
+        Fx = norm.cdf((Ex - mx) / sx)
+        Fy = norm.cdf((Ey - my) / sy)
         Px = (Fx[1:, None] - Fx[:-1, None])                 # [Bx,1]
-        Py = (Fy[None,1:] - Fy[None,:-1])                   # [1,By]
-        H += pis[k] * (Px * Py)                              # outer -> [Bx,By]
+        Py = (Fy[None, 1:] - Fy[None, :-1])                 # [1,By]
+        H += pis[k] * (Px * Py)
+
     return H
 
-def _gridify(samples, edges_x, edges_y, alpha=1.0):
-    H, *_ = np.histogram2d(samples[:,0], samples[:,1], bins=[edges_x, edges_y])
-    Bx, By = len(edges_x)-1, len(edges_y)-1
-    P = (H + alpha) / (H.sum() + alpha * Bx * By)
-    return P, H.sum()
+def _gridify_mass(samples, edges_x, edges_y):
+    """
+    Histogram -> cell counts, then normalize to cell masses that sum to 1
+    (conditioning on being inside the grid box).
+    Returns (Pm_mass, count_in_bounds).
+    """
+    H, *_ = np.histogram2d(samples[:, 0], samples[:, 1], bins=[edges_x, edges_y])
+    count_in = float(H.sum())
+    Pm = H / (count_in + 1e-12)
+    return Pm, count_in
 
-def _tv(Pt, Pm, area):
-    return 0.5 * np.sum(np.abs(Pt - Pm)) * area
+def _apply_dirichlet_smoothing(P, alpha):
+    """Symmetric Dirichlet pseudocount smoothing on a mass grid."""
+    if alpha <= 0:
+        return P
+    Bx, By = P.shape
+    return (P + alpha) / (P.sum() + alpha * Bx * By)
+
+def _tv(Pt, Pm):
+    # TV on discrete distributions over bins (mass space)
+    return 0.5 * np.sum(np.abs(Pt - Pm))
 
 def _js(P, Q, eps=1e-12):
-    M = 0.5*(P+Q)
-    def _kl(a,b): return np.sum(a*np.log((a+eps)/(b+eps)))
-    return 0.5*_kl(P, M) + 0.5*_kl(Q, M)
+    M = 0.5 * (P + Q)
+    def _kl(a, b): 
+        return np.sum(a * np.log((a + eps) / (b + eps)))
+    return 0.5 * _kl(P, M) + 0.5 * _kl(Q, M)
 
 def _sliced_wasserstein_2d(X, Y, n_proj=64, rng=None):
-    if rng is None: rng = np.random.default_rng(0)
+    if rng is None:
+        rng = np.random.default_rng(0)
     X = np.asarray(X); Y = np.asarray(Y)
     sw = 0.0
     for _ in range(n_proj):
-        v = rng.normal(size=2); v /= np.linalg.norm(v) + 1e-12
-        x = X @ v; y = Y @ v
-        x = np.sort(x); y = np.sort(y)
+        v = rng.normal(size=2)
+        v /= np.linalg.norm(v) + 1e-12
+        x = np.sort(X @ v)
+        y = np.sort(Y @ v)
         n = min(len(x), len(y))
-        sw += np.mean((x[:n] - y[:n])**2)**0.5
+        sw += np.sqrt(np.mean((x[:n] - y[:n])**2))
     return sw / n_proj
-
-def _median_heuristic_gamma(X, Y):
-    Z = np.vstack([X, Y])
-    # subsample for speed
-    m = min(len(Z), 2000)
-    idx = np.random.default_rng(0).choice(len(Z), m, replace=False)
-    Z = Z[idx]
-    D = np.linalg.norm(Z[:,None,:]-Z[None,:,:], axis=-1)
-    med = np.median(D[D>0])
-    gamma = 1.0/(2*(med**2 + 1e-12))
-    return gamma
-
-def _mmd_rbf_stat(X, Y):
-    # hyppo has .statistic(X, Y), avoid permutations
-    return float(MMD(compute_kernel="rbf").statistic(X, Y))
 
 def _energy_stat(X, Y):
     return float(Energy().statistic(X, Y))
+
+def w2_exact(X, Y):
+    n = X.shape[0]
+    assert X.shape == Y.shape
+    C = ot.dist(X, Y, metric="euclidean") ** 2
+    a = np.ones(n) / n
+    b = np.ones(n) / n
+    w2_sq = ot.emd2(a, b, C)
+    return float(np.sqrt(w2_sq))
+
+def w2_exact_subsample(X, Y, max_n=1000, seed=0):
+    rng = np.random.default_rng(seed)
+    n = min(len(X), len(Y), max_n)
+    idx1 = rng.choice(len(X), n, replace=False)
+    idx2 = rng.choice(len(Y), n, replace=False)
+    return w2_exact(X[idx1], Y[idx2])
 
 def divergence_metrics_plus(
     ds,
     gen_xy,
     n_true=60_000,
     grid=200,
-    alpha=1.0,
+    alpha=0.0,                 # recommend: 0.0 or something tiny like 1e-4
     two_sample_max_n=10_000,
     rng_seed=2025,
 ):
@@ -96,58 +114,82 @@ def divergence_metrics_plus(
     true_xy = get_true_samples(ds, n_true)
 
     # 1D W2 (marginals)
-    w2_x = wasserstein_distance(gen_xy[:,0], true_xy[:,0])
-    w2_y = wasserstein_distance(gen_xy[:,1], true_xy[:,1])
+    w2_x = wasserstein_distance(gen_xy[:, 0], true_xy[:, 0])
+    w2_y = wasserstein_distance(gen_xy[:, 1], true_xy[:, 1])
 
-    # Grid (use exact Pt from analytic mixture)
-    R = ds.R
+    # Grid definition
+    R = float(ds.R)
     edges = np.linspace(-R, R, grid + 1)
-    Pt = _true_cell_mass_grid(ds, edges, edges)              # exact reference
-    Pm, _ = _gridify(gen_xy, edges, edges, alpha=alpha)
-    area = (2*R)**2 / (grid*grid)
-    Bx, By = Pt.shape
-    Pt = (Pt + alpha) / (Pt.sum() + alpha * Bx * By)
-    
-        # --- Max squared error (mass space) + where it occurs ---
+    area = (2 * R) ** 2 / (grid * grid)
+
+    # True cell masses from analytic mixture
+    Pt = _true_cell_mass_grid(ds, edges, edges)
+    Pt = Pt / (Pt.sum() + 1e-12)         # ensure sums to 1 numerically
+
+    # Model cell masses from samples (conditioned on being inside the box)
+    Pm, count_in = _gridify_mass(gen_xy, edges, edges)
+    in_bounds_frac = float(count_in / max(1, len(gen_xy)))
+
+    # Optional symmetric smoothing (apply to BOTH)
+    Pt = _apply_dirichlet_smoothing(Pt, alpha)
+    Pm = _apply_dirichlet_smoothing(Pm, alpha)
+
+    # Differences
     D = Pt - Pm
+
+    # Worst-cell diagnostics
     max_sq_err = float(np.max(D**2))
-    imax = np.unravel_index(np.argmax(D**2), D.shape)
-    # coords of that cell (useful for annotating heatmaps)
-    ix, iy = imax
-    edges = np.linspace(-R, R, grid + 1)
+    ix, iy = np.unravel_index(np.argmax(D**2), D.shape)
     worst_cell = dict(
         ix=int(ix), iy=int(iy),
-        x_interval=(float(edges[ix]), float(edges[ix+1])),
-        y_interval=(float(edges[iy]), float(edges[iy+1])),
+        x_interval=(float(edges[ix]), float(edges[ix + 1])),
+        y_interval=(float(edges[iy]), float(edges[iy + 1])),
         value=max_sq_err,
     )
 
-    # Optional: per-cell *density* contribution variant (matches your density-MSE scaling)
-    # Each cell contributes (Pt-Pm)^2 / area to the L2(p - q) integral.
-    max_sq_err_density_contrib = float(np.max((D**2) / area))
+    # Metrics
+    eps = 1e-12
 
+    # forward = KL(true || model), reverse = KL(model || true)
+    KL_forward = float(np.sum(Pt * np.log((Pt + eps) / (Pm + eps))))
+    KL_reverse = float(np.sum(Pm * np.log((Pm + eps) / (Pt + eps))))
+
+    # Mean squared error
+    MSE = float(np.mean(D**2))
 
     out = dict(
-        W2_x=w2_x,
-        W2_y=w2_y,
-        TV=_tv(Pt, Pm, area),
-        JS=_js(Pt, Pm),
-        KL_forward=np.sum(Pm * np.log((Pm+1e-12)/(Pt+1e-12))),  # Jeffreys optional
-        KL_reverse=np.sum(Pt * np.log((Pt+1e-12)/(Pm+1e-12))),
-        MSE=np.sum((Pt - Pm)**2) * area,
-        mean_abs_delta=np.mean(np.abs(Pt - Pm)),
-        MaxSquaredError=max_sq_err,                           # mass-space L∞^2 on the grid
-        MaxSquaredError_DensityContrib=max_sq_err_density_contrib, # useful for heatmaps
+        # marginal metrics
+        W2_x=float(w2_x),
+        W2_y=float(w2_y),
+
+        # grid metrics
+        TV=float(_tv(Pt, Pm)),
+        JS=float(_js(Pt, Pm)),
+        KL_forward=KL_forward,
+        KL_reverse=KL_reverse,
+        MSE=MSE,
+        ISE=ISE,
+
+        mean_abs_delta=float(np.mean(np.abs(D))),
+        MaxSquaredError=max_sq_err,
+        MaxSquaredError_DensityContrib=float(np.max(D**2) / area),
+
+        # sanity/debug info
+        Pt_sum=float(Pt.sum()),
+        Pm_sum=float(Pm.sum()),
+        in_bounds_frac=in_bounds_frac,
+        worst_cell=worst_cell,
     )
 
-    # Two-sample tests on matched subsamples
+    # Two-sample tests (subsample)
     n = min(len(true_xy), len(gen_xy), two_sample_max_n)
     idxT = rng.choice(len(true_xy), n, replace=False)
-    idxG = rng.choice(len(gen_xy),  n, replace=False)
-    X = true_xy[idxT]; Y = gen_xy[idxG]
+    idxG = rng.choice(len(gen_xy), n, replace=False)
+    X = true_xy[idxT]
+    Y = gen_xy[idxG]
 
     out["EnergyDistance_stat"] = _energy_stat(X, Y)
-    # out["MMD_RBF_stat"] = _mmd_rbf_stat(X, Y)
     out["SlicedWasserstein"] = _sliced_wasserstein_2d(X, Y, n_proj=64, rng=rng)
+    out["W2_2D_exact"] = w2_exact_subsample(true_xy, gen_xy, max_n=5000)
 
     return out
