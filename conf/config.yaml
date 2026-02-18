@@ -28,6 +28,6 @@ eval:
 
 wandb:
   enabled: true
-  project: gmm-playground
+  project: playground
   entity: null
   group: null
