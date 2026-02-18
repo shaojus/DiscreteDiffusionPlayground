@@ -15,56 +15,86 @@ def get_true_samples(ds, n=60_000):
 
 def _true_cell_mass_grid(ds, edges_x, edges_y):
     """
-    Returns Pt[i,j] = P( x in [Ex[i],Ex[i+1]), y in [Ey[j],Ey[j+1]) )
-    for the analytic mixture ds.dist. This is a *cell-mass* grid (sums ~ 1).
-    Assumes diagonal Gaussians (scale_tril is diagonal).
+    Returns Pt[i,j] = P( x in [Ex[i],Ex[i+1}), y in [Ey[j],Ey[j+1}) )
+    for ds.dist, supporting:
+      - Mixture of diagonal Gaussians (MixtureSameFamily(Categorical, MultivariateNormal))
+      - Mixture of axis-aligned 2D Uniform rectangles (MixtureSameFamily(Categorical, Independent(Uniform)))
+    Output is a mass grid that sums ~ 1.
     """
     mix = ds.dist
     cat = mix.mixture_distribution
     comp = mix.component_distribution
-    pis = cat.probs.detach().cpu().numpy()                  # [K]
-    loc = comp.loc.detach().cpu().numpy()                   # [K,2]
-    scale = comp.scale_tril.detach().cpu().numpy()          # [K,2,2] (diag)
+    pis = cat.probs.detach().cpu().numpy()  # (K,)
 
-    Ex, Ey = edges_x, edges_y
-    H = np.zeros((len(Ex) - 1, len(Ey) - 1), dtype=np.float64)
+    Ex = np.asarray(edges_x, dtype=np.float64)
+    Ey = np.asarray(edges_y, dtype=np.float64)
+    Bx = len(Ex) - 1
+    By = len(Ey) - 1
+    H = np.zeros((Bx, By), dtype=np.float64)
+
+    if hasattr(comp, "loc") and hasattr(comp, "scale_tril"):
+        loc = comp.loc.detach().cpu().numpy()              # (K,2)
+        scale = comp.scale_tril.detach().cpu().numpy()     # (K,2,2) diag in your case
+
+        for k in range(len(pis)):
+            mx, my = loc[k, 0], loc[k, 1]
+            sx, sy = scale[k, 0, 0], scale[k, 1, 1]
+            Fx = norm.cdf((Ex - mx) / sx)
+            Fy = norm.cdf((Ey - my) / sy)
+            Px = (Fx[1:, None] - Fx[:-1, None])            # (Bx,1)
+            Py = (Fy[None, 1:] - Fy[None, :-1])            # (1,By)
+            H += pis[k] * (Px * Py)
+        return H
+
+    # checkerboard case
+    base = getattr(comp, "base_dist", None)  # Uniform(...)
+    if base is None or not hasattr(base, "low") or not hasattr(base, "high"):
+        raise TypeError(
+            "Unsupported ds.dist component_distribution type. "
+            "Expected Gaussian with (loc, scale_tril) or Independent(Uniform) with (low, high)."
+        )
+
+    lows = base.low.detach().cpu().numpy()   # (K,2)
+    highs = base.high.detach().cpu().numpy() # (K,2)
+
+    bin_wx = Ex[1:] - Ex[:-1]  # (Bx,)
+    bin_wy = Ey[1:] - Ey[:-1]  # (By,)
 
     for k in range(len(pis)):
-        mx, my = loc[k, 0], loc[k, 1]
-        sx, sy = scale[k, 0, 0], scale[k, 1, 1]
-        Fx = norm.cdf((Ex - mx) / sx)
-        Fy = norm.cdf((Ey - my) / sy)
-        Px = (Fx[1:, None] - Fx[:-1, None])                 # [Bx,1]
-        Py = (Fy[None, 1:] - Fy[None, :-1])                 # [1,By]
-        H += pis[k] * (Px * Py)
+        lx, ly = lows[k, 0], lows[k, 1]
+        hx, hy = highs[k, 0], highs[k, 1]
+        area_k = (hx - lx) * (hy - ly)
+        if area_k <= 0:
+            continue
+
+        # overlap lengths in x for each x-bin
+        ox = np.maximum(0.0, np.minimum(Ex[1:], hx) - np.maximum(Ex[:-1], lx))  # (Bx,)
+        oy = np.maximum(0.0, np.minimum(Ey[1:], hy) - np.maximum(Ey[:-1], ly))  # (By,)
+
+        # mass in bin = overlap_area / rect_area
+        # outer product gives overlap areas per bin
+        H += pis[k] * (ox[:, None] * oy[None, :]) / area_k
 
     return H
 
 def _gridify_mass(samples, edges_x, edges_y):
-    """
-    Histogram -> cell counts, then normalize to cell masses that sum to 1
-    (conditioning on being inside the grid box).
-    Returns (Pm_mass, count_in_bounds).
-    """
     H, *_ = np.histogram2d(samples[:, 0], samples[:, 1], bins=[edges_x, edges_y])
     count_in = float(H.sum())
     Pm = H / (count_in + 1e-12)
     return Pm, count_in
 
 def _apply_dirichlet_smoothing(P, alpha):
-    """Symmetric Dirichlet pseudocount smoothing on a mass grid."""
     if alpha <= 0:
         return P
     Bx, By = P.shape
     return (P + alpha) / (P.sum() + alpha * Bx * By)
 
 def _tv(Pt, Pm):
-    # TV on discrete distributions over bins (mass space)
     return 0.5 * np.sum(np.abs(Pt - Pm))
 
 def _js(P, Q, eps=1e-12):
     M = 0.5 * (P + Q)
-    def _kl(a, b): 
+    def _kl(a, b):
         return np.sum(a * np.log((a + eps) / (b + eps)))
     return 0.5 * _kl(P, M) + 0.5 * _kl(Q, M)
 
@@ -106,7 +136,7 @@ def divergence_metrics_plus(
     gen_xy,
     n_true=60_000,
     grid=200,
-    alpha=0.0,                 # recommend: 0.0 or something tiny like 1e-4
+    alpha=0.0,
     two_sample_max_n=10_000,
     rng_seed=2025,
 ):
@@ -122,22 +152,20 @@ def divergence_metrics_plus(
     edges = np.linspace(-R, R, grid + 1)
     area = (2 * R) ** 2 / (grid * grid)
 
-    # True cell masses from analytic mixture
+    # True cell masses (works for both GMM + checkerboard now)
     Pt = _true_cell_mass_grid(ds, edges, edges)
-    Pt = Pt / (Pt.sum() + 1e-12)         # ensure sums to 1 numerically
+    Pt = Pt / (Pt.sum() + 1e-12)
 
-    # Model cell masses from samples (conditioned on being inside the box)
+    # Model cell masses from samples
     Pm, count_in = _gridify_mass(gen_xy, edges, edges)
     in_bounds_frac = float(count_in / max(1, len(gen_xy)))
 
-    # Optional symmetric smoothing (apply to BOTH)
+    # Optional symmetric smoothing
     Pt = _apply_dirichlet_smoothing(Pt, alpha)
     Pm = _apply_dirichlet_smoothing(Pm, alpha)
 
-    # Differences
     D = Pt - Pm
 
-    # Worst-cell diagnostics
     max_sq_err = float(np.max(D**2))
     ix, iy = np.unravel_index(np.argmax(D**2), D.shape)
     worst_cell = dict(
@@ -147,22 +175,17 @@ def divergence_metrics_plus(
         value=max_sq_err,
     )
 
-    # Metrics
     eps = 1e-12
-
-    # forward = KL(true || model), reverse = KL(model || true)
     KL_forward = float(np.sum(Pt * np.log((Pt + eps) / (Pm + eps))))
     KL_reverse = float(np.sum(Pm * np.log((Pm + eps) / (Pt + eps))))
 
-    # Mean squared error
     MSE = float(np.mean(D**2))
+    ISE = float(area * np.sum(D**2))  # integrated squared error in continuous units
 
     out = dict(
-        # marginal metrics
         W2_x=float(w2_x),
         W2_y=float(w2_y),
 
-        # grid metrics
         TV=float(_tv(Pt, Pm)),
         JS=float(_js(Pt, Pm)),
         KL_forward=KL_forward,
@@ -174,7 +197,6 @@ def divergence_metrics_plus(
         MaxSquaredError=max_sq_err,
         MaxSquaredError_DensityContrib=float(np.max(D**2) / area),
 
-        # sanity/debug info
         Pt_sum=float(Pt.sum()),
         Pm_sum=float(Pm.sum()),
         in_bounds_frac=in_bounds_frac,
@@ -190,6 +212,6 @@ def divergence_metrics_plus(
 
     out["EnergyDistance_stat"] = _energy_stat(X, Y)
     out["SlicedWasserstein"] = _sliced_wasserstein_2d(X, Y, n_proj=64, rng=rng)
-    out["W2_2D_exact"] = w2_exact_subsample(true_xy, gen_xy, max_n=5000)
+    out["W2_2D_exact"] = w2_exact_subsample(true_xy, gen_xy, max_n=5000, seed=rng_seed)
 
     return out

@@ -7,7 +7,7 @@
 #SBATCH --partition=any_gpu
 #SBATCH --mem=50G
 #SBATCH --array=0-3
-#SBATCH --output=/net/galaxy/home/koes/jshao2/playground/logs/ar_sweep-%A_%a.out
+#SBATCH --output=/net/galaxy/home/koes/jshao2/DiscreteDiffusionPlayground/logs/ar_sweep-%A_%a.out
 
 # Activate environment
 eval "$(micromamba shell hook --shell=bash)"

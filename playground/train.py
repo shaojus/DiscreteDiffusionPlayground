@@ -23,52 +23,82 @@ def count_params(m):
     return sum(p.numel() for p in m.parameters() if p.requires_grad)
 
 def plot(ds, gen_xy, grid=400, levels=50, plot_raw=True):
-    R = ds.R
-    dist_dev = ds.dist.component_distribution.loc.device
-    
+    R = float(ds.R)
+
+    if hasattr(ds, "device"):
+        dist_dev = ds.device
+    elif hasattr(ds, "dist"):
+        try:
+            dist_dev = ds.dist.mixture_distribution.probs.device
+        except Exception:
+            comp = ds.dist.component_distribution
+            if hasattr(comp, "loc"):
+                dist_dev = comp.loc.device
+            else:
+                base = getattr(comp, "base_dist", None)
+                if base is not None and hasattr(base, "low"):
+                    dist_dev = base.low.device
+                else:
+                    dist_dev = torch.device("cpu")
+    else:
+        dist_dev = torch.device("cpu")
+
+    gen_xy = np.asarray(gen_xy, dtype=np.float64)
+
     if plot_raw:
         # Plot in 0-1 space (raw coordinates)
-        # Need to convert gen_xy back to 0-1 space
         gen_uv = (gen_xy + R) / (2 * R)
-        
-        # Create grid in 0-1 space
-        us = torch.linspace(0, 1, grid, device=dist_dev)
-        uu, vv = torch.meshgrid(us, us, indexing='ij')
-        
+
+        # Grid in 0-1 space
+        us = torch.linspace(0.0, 1.0, grid, device=dist_dev)
+        uu, vv = torch.meshgrid(us, us, indexing="ij")
+
         # Convert grid to original space for log prob
         coords_orig = torch.stack([uu.reshape(-1), vv.reshape(-1)], dim=-1) * (2 * R) - R
-        lp = (ds.dist.log_prob(coords_orig).view(grid, grid).detach().cpu().numpy()
-              if hasattr(ds, "dist") else None)
-        
+
+        lp = None
+        if hasattr(ds, "dist"):
+            with torch.no_grad():
+                lp = ds.dist.log_prob(coords_orig).view(grid, grid).detach().cpu().numpy()
+
         uu_np = uu.detach().cpu().numpy()
         vv_np = vv.detach().cpu().numpy()
-        
+
         fig, ax = plt.subplots(figsize=(6, 6))
         if lp is not None:
             ax.contour(uu_np, vv_np, lp, levels=levels)
-        ax.scatter(gen_uv[:, 0], gen_uv[:, 1], s=6, c='red', alpha=0.35)
-        ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.set_aspect('equal')
-        ax.set_title(f'Generated samples (0-1 space)')
+        ax.scatter(gen_uv[:, 0], gen_uv[:, 1], s=6, c="red", alpha=0.35)
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+        ax.set_aspect("equal")
+        ax.set_title("Generated samples (0-1 space)")
+
     else:
-        # Original plotting in mapped space
+        # Plot in mapped/original space
         xs = torch.linspace(-R, R, grid, device=dist_dev)
-        xx, yy = torch.meshgrid(xs, xs, indexing='ij')
+        xx, yy = torch.meshgrid(xs, xs, indexing="ij")
         coords = torch.stack([xx.reshape(-1), yy.reshape(-1)], dim=-1)
-        
-        lp = (ds.dist.log_prob(coords).view(grid, grid).detach().cpu().numpy()
-              if hasattr(ds, "dist") else None)
+
+        lp = None
+        if hasattr(ds, "dist"):
+            with torch.no_grad():
+                lp = ds.dist.log_prob(coords).view(grid, grid).detach().cpu().numpy()
+
         xx_np = xx.detach().cpu().numpy()
         yy_np = yy.detach().cpu().numpy()
-        
+
         fig, ax = plt.subplots(figsize=(6, 6))
         if lp is not None:
             ax.contour(xx_np, yy_np, lp, levels=levels)
-        ax.scatter(gen_xy[:, 0], gen_xy[:, 1], s=6, c='red', alpha=0.35)
-        ax.set_xlim(-R, R); ax.set_ylim(-R, R); ax.set_aspect('equal')
-        ax.set_title(f'Generated samples')
-    
+        ax.scatter(gen_xy[:, 0], gen_xy[:, 1], s=6, c="red", alpha=0.35)
+        ax.set_xlim(-R, R)
+        ax.set_ylim(-R, R)
+        ax.set_aspect("equal")
+        ax.set_title("Generated samples")
+
     plt.tight_layout()
     return fig
+
 
 @hydra.main(version_base=None, config_path='../conf', config_name='config')
 def main(cfg: DictConfig):
@@ -88,7 +118,6 @@ def main(cfg: DictConfig):
         )
     else:
         raise ValueError(f"Unknown dataset: {cfg.data.dataset}")
-
 
     loader = DataLoader(ds, batch_size=cfg.train.batch_size)
     cfg.model.d_hid = 4 * cfg.model.d_model

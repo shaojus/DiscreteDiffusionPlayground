@@ -1,0 +1,3 @@
+dataset: gmm
+n_bits: 8
+n_mixes: 8

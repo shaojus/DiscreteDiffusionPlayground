@@ -16,6 +16,6 @@ sweep_id = wandb.sweep(sweep_config, project=project, entity=entity)
 
 export_vars = f"ALL,SWEEP_ID={sweep_id},WANDB_ENTITY={entity},WANDB_PROJECT={project}"
 
-subprocess.run(["sbatch", f"--export={export_vars}", "run_agent.sh"])
+subprocess.run(["sbatch", f"--export={export_vars}", "run_sweep.sh"])
 
 print(f"Sweep {sweep_id} launched for {entity}/{project}")
