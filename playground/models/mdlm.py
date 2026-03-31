@@ -301,7 +301,7 @@ class MDLM(nn.Module):
         eps: float = 1e-5,
     ) -> torch.LongTensor:
         """
-        Repo-faithful DDPM-style reverse sampler for binary SUBS toy MDLM.
+        DDPM-style reverse sampler for binary SUBS toy MDLM.
         """
         xt = torch.full((B, L), self.mask_token, device=device, dtype=torch.long)
         timesteps = torch.linspace(1.0, eps, steps + 1, device=device)
@@ -324,7 +324,6 @@ class MDLM(nn.Module):
             _, q_t, _ = _mdlm_alpha_q_w(t_i)
             _, q_s, _ = _mdlm_alpha_q_w(s_i)
 
-            # repo _ddpm_update analogue:
             # clean mass = p_theta(x0|x_t,t) * (q_t - q_s)
             # mask mass  = q_s
             delta_q = (q_t - q_s).clamp_min(0.0)[:, None, None]
@@ -342,7 +341,7 @@ class MDLM(nn.Module):
             copy_flag = (xt != self.mask_token)
             xt = torch.where(copy_flag, xt, sampled)
 
-        # repo-style final noise removal
+        # final noise removal
         if (xt == self.mask_token).any():
             t_final = torch.full((B,), timesteps[-1], device=device)
             logits_btc = self(
