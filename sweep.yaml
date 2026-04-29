@@ -7,28 +7,31 @@ metric:
 
 parameters:
   model:
-    value: ar
+    value: sedd
 
   model.d_model:
-    values: [16, 32, 64, 128]
+    values: [256, 512]
 
   model.n_layers:
-    values: [2, 4]
+    values: [4]
+  
+  data:
+    value: checkerboard
 
   seed:
-    values: [24, 48, 96]
+    values: [24]
 
   train.steps:
-    value: 50000
+    value: 30000
 
   eval.interval:
-    value: 5000
+    value: 30000
 
   wandb.group:
-    value: ar_param_sweep
+    value: sedd_param_sweep
 
 command:
   - ${env}
   - python
   - ${program}
-  - ${args_no_hyphens}  
+  - ${args_no_hyphens}

@@ -1,0 +1,13 @@
+_target_: playground.data.checkerboard.CheckerboardBinaryStream
+n_cells: 8
+R: 8.0
+n_bits: 8
+interleave: false
+reverse: false
+p_white: 0.0
+rotate_45: true
+approx_subdiv: 8
+random_rotate: true
+random_shift: true
+max_shift_frac: 1.0
+device: cpu

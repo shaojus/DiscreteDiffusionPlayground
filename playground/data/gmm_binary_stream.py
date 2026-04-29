@@ -10,7 +10,7 @@ class GMMBinaryStream(IterableDataset):
         self.R = float(R) if R is not None else float(n_mixes)
         self.n_bits = int(n_bits)
         self.interleave = bool(interleave)
-        self.reverse = bool(reverse)  # Add this line
+        self.reverse = bool(reverse)  
 
         pi   = torch.ones(n_mixes, device=self.device)
         loc  = (torch.rand(n_mixes, 2, device=self.device) - 0.5) * 2 * n_mixes
@@ -27,18 +27,27 @@ class GMMBinaryStream(IterableDataset):
 
     def __iter__(self):
         while True:
-            xy = self.dist.sample()
-            u = ((xy + self.R) / (2 * self.R)).clamp(0.0, 1.0 - self._eps)
+            # rejection sampling: ensure xy in [-R, R]^2
+            while True:
+                xy = self.dist.sample()
+                if (xy.abs() <= self.R).all():
+                    break
+
+            u = (xy + self.R) / (2 * self.R)          # now u is guaranteed in [0,1]
+            # keep u strictly < 1 so v is always in [0, 2^n - 1]
+            u = torch.clamp(u, 0.0, 1.0 - self._eps)
+
             v = torch.floor(u * (1 << self.n_bits)).to(torch.long)
             bits = ((v.unsqueeze(-1) >> self._shifts) & 1).to(torch.long)
+
             if self.interleave:
                 seq = torch.stack((bits[0], bits[1]), dim=1).reshape(-1)
             else:
                 seq = torch.cat((bits[0], bits[1]), dim=0)
-            
-            if self.reverse:  # Add this block
+
+            if self.reverse:
                 seq = torch.flip(seq, [0])
-            
+
             yield seq
 
     def decode(self, seq):

@@ -1,0 +1,70 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Environments
+.venv/
+venv/
+env/
+conda-env/
+.conda/
+.env
+.env.*
+!.env.example
+
+# Packaging/build
+build/
+dist/
+*.egg-info/
+
+# Hydra outputs
+outputs/
+multirun/
+.hydra/
+
+# Weights & Biases
+wandb/
+wandb-*/
+*.wandb
+
+# Checkpoints / model artifacts
+checkpoints/
+ckpts/
+*.ckpt
+*.pt
+*.pth
+*.safetensors
+
+# Logs
+logs/
+slurm-*.out
+*.out
+*.err
+
+# Generated results / figures
+figures/
+results/
+plots/
+samples/
+*.png
+*.jpg
+*.jpeg
+*.pdf
+
+# Data artifacts
+datasets/
+*.npy
+*.npz
+*.pkl
+*.pickle
+
+# OS/editor
+.DS_Store
+.vscode/
+.idea/

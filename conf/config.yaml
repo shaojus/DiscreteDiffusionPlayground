@@ -1,21 +1,17 @@
 defaults:
   - _self_
   - model: md4
-  - dataset: gmm_binary
+  - data: gmm
+  - optimizer: adamw
 
 seed: 24
 device: ${oc.env:DEVICE,cuda}
 
-data:
-  dataset: gmm 
-  n_mixes: 8
-  n_bits: 8
-
 train:
   steps: 20000
   batch_size: 64
-  lr: 2e-4
-  save_path: ckpts/model.pt
+  grad_clip_norm: null
+  save_path: auto
 
 log:
   every: 100
@@ -23,10 +19,13 @@ log:
 eval:
   interval: 1000
   n_samples: 20000
+  log_true_distribution: true
+  true_n_samples: 5000
   ckpt_path: ckpts/model.pt
   out_json: logs/metrics.json
 
 wandb:
   enabled: true
-  project: gm-binary-gen
-  entity: null
+  project: rem_sweep
+  entity: 'shaojus-carnegie-mellon-university'
+  group: null

@@ -3,7 +3,8 @@ _target_: playground.models.radd.RADD
 # backbone
 d_model: 128
 nhead: 4
-d_hid: 512
+d_hid: null
+d_hid_factor: 4
 n_layers: 6
 dropout: 0.0
 

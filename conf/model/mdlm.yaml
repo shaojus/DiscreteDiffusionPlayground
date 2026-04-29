@@ -1,10 +1,11 @@
-_target_: playground.models.md4.MD4
+_target_: playground.models.mdlm.MDLM
 d_model: 128
 nhead: 4
 d_hid: null
 d_hid_factor: 4
 n_layers: 6
-dropout: 0.2
+dropout: 0.1
 use_time_cond: false
 mask_token: 2
-steps: 64
+steps: 16
+use_rope: True
