@@ -4,19 +4,6 @@ This repo benchmarks discrete generative models on analytically tractable 2D bin
 
 ## Setup
 
-Python assumptions:
-- Python 3.10+
-- CUDA is optional; device is controlled by `DEVICE` env var (`cuda` by default, `cpu` for local smoke tests)
-
-Dependencies used by the current workflow:
-- `torch`
-- `hydra-core`
-- `omegaconf`
-- `wandb`
-- `matplotlib`
-- `numpy`
-- `tqdm`
-
 Install options:
 ```bash
 pip install -r requirements.txt
@@ -26,7 +13,7 @@ pip install -e .
 or with micromamba/conda:
 ```bash
 micromamba env create -f environment.yaml
-micromamba activate playground_test
+micromamba activate playground
 ```
 
 ## Training Workflow
@@ -40,13 +27,6 @@ Typical override examples:
 ```bash
 python playground/train.py model=sedd train.steps=20000 eval.interval=1000
 python playground/train.py data=checkerboard model=ar optimizer.lr=1e-4
-```
-
-Smoke tests:
-```bash
-python playground/train.py data=gmm train.steps=2 eval.interval=1 eval.n_samples=16 wandb.enabled=false
-python playground/train.py data=checkerboard train.steps=2 eval.interval=1 eval.n_samples=16 wandb.enabled=false
-python playground/train.py model=ar data=gmm train.steps=2 eval.interval=1 eval.n_samples=16 wandb.enabled=false
 ```
 
 Checkpoints are controlled by `train.save_path` (default `ckpts/model.pt`).  
