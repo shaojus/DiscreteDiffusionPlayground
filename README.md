@@ -22,6 +22,8 @@ micromamba activate playground
 - `model: ...`
 - `data: ...`
 - `optimizer: ...`
+- `run: ...`
+- `checkpoint: ...`
 
 Typical override examples:
 ```bash
@@ -29,9 +31,22 @@ python playground/train.py model=sedd train.steps=20000 eval.interval=1000
 python playground/train.py data=checkerboard model=ar optimizer.lr=1e-4
 ```
 
-Checkpoints are controlled by `train.save_path` (default `ckpts/model.pt`).  
-In sweeps, `sweep.yaml` sets per-run paths via:
-- `train.save_path=ckpts/${envvar:WANDB_RUN_ID}.pt`
+Checkpoints:
+- Save path is controlled by `train.save_path` (default `auto`).
+- With `auto`, checkpoints are named from model config (and include run id if available).
+- Checkpoints now store: `model`, `cfg`, `optimizer`, and `step`.
+
+Modes:
+```bash
+# 1) Train from scratch (default)
+python playground/train.py data=gmm train.steps=20000
+
+# 2) Eval-only from checkpoint
+python playground/train.py run.mode=eval checkpoint.path=ckpts/your_ckpt.pt wandb.enabled=false
+
+# 3) Continue training from checkpoint
+python playground/train.py run.mode=train checkpoint.path=ckpts/your_ckpt.pt checkpoint.resume=true train.steps=2000
+```
 
 ## Sweeps (W&B + Slurm)
 

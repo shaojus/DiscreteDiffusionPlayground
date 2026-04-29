@@ -18,6 +18,11 @@ from torch.utils.data import DataLoader
 from tqdm import trange
 
 from playground.data.factory import build_dataset
+from playground.training.checkpoint import (
+    load_checkpoint,
+    restore_from_checkpoint,
+    save_checkpoint,
+)
 from playground.training.eval import run_eval
 from playground.training.optim import build_optimizer
 from playground.training.wandb_utils import setup_wandb, wandb_log
@@ -81,14 +86,14 @@ def _resolve_save_path(cfg, model_cfg):
     return raw
 
 
-def _log_true_distribution(cfg, ds, enabled):
+def _log_true_distribution(cfg, ds, enabled, step=0):
     if not enabled or not bool(cfg.eval.get("log_true_distribution", False)):
         return
 
     n_samples = int(cfg.eval.true_n_samples)
     true_xy = _sample_true_xy(ds, n_samples)
     fig = plot_samples(ds, true_xy)
-    wandb_log({"true_distribution_plot": wandb.Image(fig)}, step=0, enabled=enabled)
+    wandb_log({"true_distribution_plot": wandb.Image(fig)}, step=step, enabled=enabled)
 
     import matplotlib.pyplot as plt
 
@@ -99,10 +104,12 @@ def _log_true_distribution(cfg, ds, enabled):
 def main(cfg: DictConfig):
     torch.manual_seed(int(cfg.seed))
     device = torch.device(cfg.device)
+    run_mode = str(cfg.run.mode).lower()
+    if run_mode not in {"train", "eval"}:
+        raise ValueError(f"Unknown run.mode '{cfg.run.mode}'. Use 'train' or 'eval'.")
 
     ds = build_dataset(cfg.data, device)
     L = 2 * int(cfg.data.n_bits)
-    loader = DataLoader(ds, batch_size=int(cfg.train.batch_size))
 
     wandb_enabled = setup_wandb(cfg)
 
@@ -117,19 +124,53 @@ def main(cfg: DictConfig):
     n_params = int(count_params(model))
     print(f"[info] trainable params: {n_params:,}")
 
-    if wandb_enabled:
-        wandb.config.update({"model/params": n_params}, allow_val_change=True)
-    wandb_log({"model/params": n_params}, step=0, enabled=wandb_enabled)
-
     opt = build_optimizer(cfg.optimizer, model)
     save_path = _resolve_save_path(cfg, model_cfg)
     print(f"[info] checkpoint path: {save_path}")
 
-    _log_true_distribution(cfg, ds, wandb_enabled)
+    checkpoint_path = cfg.checkpoint.get("path")
+    if checkpoint_path is not None:
+        checkpoint_path = str(checkpoint_path)
+        if checkpoint_path.strip().lower() in {"", "none", "null"}:
+            checkpoint_path = None
+    start_step = 0
 
+    if checkpoint_path is not None:
+        ckpt = load_checkpoint(str(checkpoint_path), device)
+        restore_info = restore_from_checkpoint(
+            model=model,
+            optimizer=opt,
+            ckpt=ckpt,
+            strict=bool(cfg.checkpoint.strict_model_load),
+            load_optimizer=bool(cfg.checkpoint.resume and cfg.checkpoint.load_optimizer),
+        )
+        if bool(cfg.checkpoint.resume):
+            start_step = int(restore_info["start_step"])
+        print(
+            f"[info] loaded checkpoint from {checkpoint_path} "
+            f"(resume={bool(cfg.checkpoint.resume)}, optimizer_loaded={restore_info['optimizer_loaded']})"
+        )
+    elif bool(cfg.checkpoint.resume):
+        raise ValueError("checkpoint.resume=true requires checkpoint.path to be set.")
+
+    if wandb_enabled:
+        wandb.config.update({"model/params": n_params}, allow_val_change=True)
+    wandb_log({"model/params": n_params}, step=start_step, enabled=wandb_enabled)
+
+    _log_true_distribution(cfg, ds, wandb_enabled, step=start_step)
+
+    if run_mode == "eval":
+        model.eval()
+        log_dict = run_eval(model, ds, cfg, L, device)
+        wandb_log(log_dict, step=start_step, enabled=wandb_enabled)
+        print("[info] eval-only run complete.")
+        return
+
+    loader = DataLoader(ds, batch_size=int(cfg.train.batch_size))
     it = iter(loader)
     model.train()
-    for step in trange(int(cfg.train.steps)):
+    for local_step in trange(int(cfg.train.steps)):
+        step = start_step + local_step
         x = next(it).to(device).long()
         loss = model.training_loss(x)
 
@@ -151,12 +192,16 @@ def main(cfg: DictConfig):
             wandb_log(log_dict, step=step, enabled=wandb_enabled)
             model.train()
 
+    final_step = start_step + int(cfg.train.steps)
     save_dir = os.path.dirname(save_path)
     if save_dir:
         os.makedirs(save_dir, exist_ok=True)
-    torch.save(
-        {"model": model.state_dict(), "cfg": OmegaConf.to_container(cfg, resolve=True)},
-        save_path,
+    save_checkpoint(
+        path=save_path,
+        model=model,
+        cfg=cfg,
+        optimizer=opt,
+        step=final_step,
     )
     print(f"Saved checkpoint to {save_path}")
 

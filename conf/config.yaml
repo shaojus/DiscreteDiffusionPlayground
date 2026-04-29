@@ -7,6 +7,15 @@ defaults:
 seed: 24
 device: ${oc.env:DEVICE,cuda}
 
+run:
+  mode: train
+
+checkpoint:
+  path: null
+  resume: false
+  strict_model_load: true
+  load_optimizer: true
+
 train:
   steps: 20000
   batch_size: 64
