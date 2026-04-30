@@ -301,6 +301,8 @@ class CheckerboardBinaryStream(IterableDataset):
 
     @torch.no_grad()
     def sample_xy(self):
+        if self.rotate_45:
+            return self._sample_rotated_checkerboard_exact(())
         return self.dist.sample()
 
     def __iter__(self):
