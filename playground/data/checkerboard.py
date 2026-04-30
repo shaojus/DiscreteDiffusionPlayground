@@ -85,7 +85,8 @@ class CheckerboardBinaryStream(IterableDataset):
     def _build_dist(self):
         if not self.rotate_45:
             return self._build_axis_aligned_checkerboard()
-        return self._build_rotated_checkerboard_approx()
+        # Rotated checkerboard is sampled exactly via rejection in sample_xy().
+        return None
 
     def _build_axis_aligned_checkerboard(self):
         ii, jj = torch.meshgrid(
@@ -181,8 +182,135 @@ class CheckerboardBinaryStream(IterableDataset):
         mix = Categorical(probs=probs)
         return MixtureSameFamily(mix, comp, validate_args=False)
 
+    def _checker_uv(self, xy: torch.Tensor):
+        """
+        Map xy coordinates to checker coordinates after applying dataset shift/rotation.
+        xy shape: (..., 2)
+        """
+        xcs = xy[..., 0] - self.shift_x
+        ycs = xy[..., 1] - self.shift_y
+        c = math.cos(self.theta)
+        s = math.sin(self.theta)
+        u = c * xcs + s * ycs
+        v = -s * xcs + c * ycs
+        return u, v
+
+    def _rotated_cell_indices(self, u: torch.Tensor, v: torch.Tensor):
+        """
+        Preserve existing rotated geometry definition for compatibility.
+        """
+        rot_R = math.sqrt(2.0) * self.R
+        rot_cell = (2.0 * rot_R) / self.n_cells
+        iu = torch.floor((u + rot_R) / rot_cell).long()
+        iv = torch.floor((v + rot_R) / rot_cell).long()
+        in_bounds = (iu >= 0) & (iu < self.n_cells) & (iv >= 0) & (iv < self.n_cells)
+        return iu, iv, in_bounds
+
+    def _sample_rotated_checkerboard_exact(self, batch_shape=()):
+        """
+        Exact rotated checkerboard sampler by accept/reject on uniform xy in [-R, R]^2.
+
+        batch_shape can be an int or tuple.
+        """
+        if isinstance(batch_shape, int):
+            batch_shape = (batch_shape,)
+        batch_shape = tuple(batch_shape)
+        total = int(np.prod(batch_shape)) if len(batch_shape) > 0 else 1
+
+        accepted = []
+        got = 0
+
+        while got < total:
+            need = total - got
+            # Oversample a small factor to reduce Python loop overhead.
+            draw = max(32, int(need * 2.5))
+
+            cand = (2.0 * self.R) * torch.rand(draw, 2, device=self.device) - self.R
+            u, v = self._checker_uv(cand)
+            iu, iv, in_bounds = self._rotated_cell_indices(u, v)
+
+            keep_prob = torch.zeros(draw, device=self.device, dtype=torch.float32)
+            if in_bounds.any():
+                parity_black = ((iu[in_bounds] + iv[in_bounds]) % 2 == 0)
+                keep_prob[in_bounds] = torch.where(
+                    parity_black,
+                    torch.ones_like(keep_prob[in_bounds]),
+                    torch.full_like(keep_prob[in_bounds], self.p_white),
+                )
+
+            keep = torch.rand(draw, device=self.device) < keep_prob
+            if keep.any():
+                acc = cand[keep]
+                take = min(need, acc.shape[0])
+                accepted.append(acc[:take])
+                got += take
+
+        out = torch.cat(accepted, dim=0)
+        if len(batch_shape) == 0:
+            return out[0]
+        return out.view(*batch_shape, 2)
+
+    @torch.no_grad()
+    def debug_rotated_sampler_stats(self, n_samples=10000, p_white_override=None):
+        """
+        Internal sanity helper for rotated exact sampler.
+
+        Returns diagnostics:
+          - acceptance_rate
+          - frac_reject_outside_rot_bounds
+          - frac_reject_white (including stochastic white rejection if p_white>0)
+          - parity_check_pass_rate on accepted points
+        """
+        if not self.rotate_45:
+            raise ValueError("debug_rotated_sampler_stats is only meaningful when rotate_45=True")
+
+        n_samples = int(n_samples)
+        if n_samples <= 0:
+            raise ValueError("n_samples must be > 0")
+
+        p_white = float(self.p_white if p_white_override is None else p_white_override)
+
+        cand = (2.0 * self.R) * torch.rand(n_samples, 2, device=self.device) - self.R
+        u, v = self._checker_uv(cand)
+        iu, iv, in_bounds = self._rotated_cell_indices(u, v)
+
+        keep_prob = torch.zeros(n_samples, device=self.device, dtype=torch.float32)
+        parity_black = torch.zeros(n_samples, device=self.device, dtype=torch.bool)
+        if in_bounds.any():
+            parity_black[in_bounds] = ((iu[in_bounds] + iv[in_bounds]) % 2 == 0)
+            keep_prob[in_bounds] = torch.where(
+                parity_black[in_bounds],
+                torch.ones_like(keep_prob[in_bounds]),
+                torch.full_like(keep_prob[in_bounds], p_white),
+            )
+
+        rnd = torch.rand(n_samples, device=self.device)
+        keep = rnd < keep_prob
+
+        rejected = ~keep
+        reject_outside = (~in_bounds) & rejected
+        reject_white = in_bounds & rejected
+
+        accepted = keep
+        parity_ok = torch.ones(n_samples, device=self.device, dtype=torch.bool)
+        if accepted.any():
+            # For p_white=0 accepted points should all be black.
+            # For p_white>0 accepted points can be either black or white by design.
+            if p_white <= 0.0:
+                parity_ok[accepted] = parity_black[accepted]
+
+        return {
+            "n_samples": n_samples,
+            "acceptance_rate": float(accepted.float().mean().item()),
+            "frac_reject_outside_rot_bounds": float(reject_outside.float().mean().item()),
+            "frac_reject_white": float(reject_white.float().mean().item()),
+            "parity_check_pass_rate": float(parity_ok[accepted].float().mean().item() if accepted.any() else 1.0),
+        }
+
     @torch.no_grad()
     def sample_xy(self):
+        if self.rotate_45:
+            return self._sample_rotated_checkerboard_exact(())
         return self.dist.sample()
 
     def __iter__(self):
