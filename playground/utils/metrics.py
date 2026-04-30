@@ -35,10 +35,15 @@ def _true_cell_mass_grid(ds, edges_x, edges_y):
     """
     Returns Pt[i,j] = P( x in [Ex[i],Ex[i+1}), y in [Ey[j],Ey[j+1}) )
     for ds.dist, supporting:
+      - any ds.dist that exposes its own .cell_mass_grid(Ex, Ey) (e.g. the
+        rotated-checkerboard triangle mixture)
       - Mixture of diagonal Gaussians (MixtureSameFamily(Categorical, MultivariateNormal))
       - Mixture of axis-aligned 2D Uniform rectangles (MixtureSameFamily(Categorical, Independent(Uniform)))
     Output is a mass grid that sums ~ 1.
     """
+    if hasattr(ds.dist, "cell_mass_grid"):
+        return ds.dist.cell_mass_grid(edges_x, edges_y)
+
     mix = ds.dist
     cat = mix.mixture_distribution
     comp = mix.component_distribution
