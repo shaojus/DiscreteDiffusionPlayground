@@ -29,10 +29,11 @@ class RoPEAttention(nn.Module):
         return self.out(x)
 
 class MDLM(nn.Module):
-    def __init__(self, d_model=128, nhead=4, d_hid=512, n_layers=6, dropout=0.1, max_len=16, mask_token=2, steps=16, **kwargs):
+    def __init__(self, d_model=128, nhead=4, d_hid=512, n_layers=6, dropout=0.1, max_len=16, mask_token=2, steps=16, t_eps=1e-3, **kwargs):
         super().__init__()
         self.mask_token = mask_token
         self.steps = steps
+        self.t_eps = float(t_eps)
         self.emb = nn.Embedding(3, d_model)
         inv_freq = 1.0 / (10000 ** (torch.arange(0, d_model // nhead, 2).float() / (d_model // nhead)))
         self.register_buffer("inv_freq", inv_freq)
@@ -62,13 +63,15 @@ class MDLM(nn.Module):
 
     def training_loss(self, x0):
         B, L = x0.shape
-        t = torch.rand(B, device=x0.device)
+        eps = self.t_eps
+        t = torch.rand(B, device=x0.device) * (1.0 - eps) + eps         # t in [eps, 1]
         mask = torch.rand((B, L), device=x0.device) < t.view(B, 1)
         xt = x0.clone()
         xt[mask] = self.mask_token
         logits = self(xt)
-        loss = F.cross_entropy(logits.transpose(1, 2), x0, reduction='none')
-        return (loss * mask.float()).sum() / (B * L * t.view(B, 1)).mean().clamp_min(1e-6)
+        ce = F.cross_entropy(logits.transpose(1, 2), x0, reduction='none')   # (B, L)
+        # MDLM ELBO: mean_b mean_l [ mask_bl * CE_bl / t_b ]
+        return ((ce * mask.float()) / t.view(B, 1)).mean()
 
     @torch.no_grad()
     def sample(self, N, L, device):

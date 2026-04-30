@@ -1,8 +1,6 @@
 import numpy as np
 import torch
-from scipy.stats import wasserstein_distance, norm
-from hyppo.ksample import MMD, Energy
-import ot
+from scipy.stats import norm
 
 # def get_true_samples(ds, n=60_000):
 #     if hasattr(ds, "dist"):
@@ -132,25 +130,6 @@ def _sliced_wasserstein_2d(X, Y, n_proj=64, rng=None):
         sw += np.sqrt(np.mean((x[:n] - y[:n])**2))
     return sw / n_proj
 
-def _energy_stat(X, Y):
-    return float(Energy().statistic(X, Y))
-
-def w2_exact(X, Y):
-    n = X.shape[0]
-    assert X.shape == Y.shape
-    C = ot.dist(X, Y, metric="euclidean") ** 2
-    a = np.ones(n) / n
-    b = np.ones(n) / n
-    w2_sq = ot.emd2(a, b, C)
-    return float(np.sqrt(w2_sq))
-
-def w2_exact_subsample(X, Y, max_n=1000, seed=0):
-    rng = np.random.default_rng(seed)
-    n = min(len(X), len(Y), max_n)
-    idx1 = rng.choice(len(X), n, replace=False)
-    idx2 = rng.choice(len(Y), n, replace=False)
-    return w2_exact(X[idx1], Y[idx2])
-
 def divergence_metrics_plus(
     ds,
     gen_xy,
@@ -162,10 +141,6 @@ def divergence_metrics_plus(
 ):
     rng = np.random.default_rng(rng_seed)
     true_xy = get_true_samples(ds, n_true)
-
-    # 1D W2 (marginals)
-    w2_x = wasserstein_distance(gen_xy[:, 0], true_xy[:, 0])
-    w2_y = wasserstein_distance(gen_xy[:, 1], true_xy[:, 1])
 
     # Grid definition
     R = float(ds.R)
@@ -203,9 +178,6 @@ def divergence_metrics_plus(
     ISE = float(area * np.sum(D**2))  # integrated squared error in continuous units
 
     out = dict(
-        W2_x=float(w2_x),
-        W2_y=float(w2_y),
-
         TV=float(_tv(Pt, Pm)),
         JS=float(_js(Pt, Pm)),
         KL_forward=KL_forward,
@@ -223,15 +195,10 @@ def divergence_metrics_plus(
         worst_cell=worst_cell,
     )
 
-    # Two-sample tests (subsample)
+    # Sliced Wasserstein on a subsample (cheap 2D distributional distance).
     n = min(len(true_xy), len(gen_xy), two_sample_max_n)
     idxT = rng.choice(len(true_xy), n, replace=False)
     idxG = rng.choice(len(gen_xy), n, replace=False)
-    X = true_xy[idxT]
-    Y = gen_xy[idxG]
-
-    out["EnergyDistance_stat"] = _energy_stat(X, Y)
-    out["SlicedWasserstein"] = _sliced_wasserstein_2d(X, Y, n_proj=64, rng=rng)
-    out["W2_2D_exact"] = w2_exact_subsample(true_xy, gen_xy, max_n=5000, seed=rng_seed)
+    out["SlicedWasserstein"] = _sliced_wasserstein_2d(true_xy[idxT], gen_xy[idxG], n_proj=64, rng=rng)
 
     return out
