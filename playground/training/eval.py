@@ -65,7 +65,16 @@ def run_eval(model, ds, cfg, L, device):
         toks = model.sample(int(cfg.eval.n_samples), L, device)
         toks_np = toks.detach().cpu().numpy()
         gen_xy = np.stack([ds.decode(seq) for seq in toks_np], axis=0)
-        mets = divergence_metrics_plus(ds, gen_xy)
+
+        # divergence_metrics_plus is O(n^2); subsample to keep eval cheap.
+        # Plotting still uses the full gen_xy below.
+        n_metrics = int(cfg.eval.get("n_metrics_samples", 4000))
+        if n_metrics < len(gen_xy):
+            idx = np.random.default_rng(0).choice(len(gen_xy), size=n_metrics, replace=False)
+            gen_xy_metrics = gen_xy[idx]
+        else:
+            gen_xy_metrics = gen_xy
+        mets = divergence_metrics_plus(ds, gen_xy_metrics)
 
     log_dict = {f"eval/{k}": v for k, v in mets.items()}
 

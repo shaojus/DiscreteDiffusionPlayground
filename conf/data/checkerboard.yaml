@@ -6,7 +6,6 @@ interleave: false
 reverse: false
 p_white: 0.0
 rotate_45: true
-approx_subdiv: 8
 random_rotate: true
 random_shift: true
 max_shift_frac: 1.0
