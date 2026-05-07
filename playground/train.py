@@ -100,6 +100,19 @@ def _log_true_distribution(cfg, ds, enabled, step=0):
     plt.close(fig)
 
 
+def _apply_linear_warmup(optimizer, base_lrs, step, warmup_steps, start_factor):
+    if warmup_steps <= 0:
+        return
+    if step >= warmup_steps:
+        scale = 1.0
+    else:
+        # Linearly increase LR from start_factor * base_lr to base_lr.
+        progress = float(step + 1) / float(warmup_steps)
+        scale = float(start_factor) + (1.0 - float(start_factor)) * progress
+    for pg, base_lr in zip(optimizer.param_groups, base_lrs):
+        pg["lr"] = float(base_lr) * scale
+
+
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
 def main(cfg: DictConfig):
     torch.manual_seed(int(cfg.seed))
@@ -168,9 +181,24 @@ def main(cfg: DictConfig):
 
     loader = DataLoader(ds, batch_size=int(cfg.train.batch_size))
     it = iter(loader)
+    warmup_steps = int(cfg.train.get("lr_warmup_steps", 0))
+    warmup_start_factor = float(cfg.train.get("lr_warmup_start_factor", 0.1))
+    if warmup_steps < 0:
+        raise ValueError("train.lr_warmup_steps must be >= 0")
+    if not (0.0 < warmup_start_factor <= 1.0):
+        raise ValueError("train.lr_warmup_start_factor must be in (0, 1].")
+    base_lrs = [float(pg["lr"]) for pg in opt.param_groups]
+
     model.train()
     for local_step in trange(int(cfg.train.steps)):
         step = start_step + local_step
+        _apply_linear_warmup(
+            optimizer=opt,
+            base_lrs=base_lrs,
+            step=step,
+            warmup_steps=warmup_steps,
+            start_factor=warmup_start_factor,
+        )
         x = next(it).to(device).long()
         loss = model.training_loss(x)
 

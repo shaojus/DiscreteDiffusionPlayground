@@ -18,8 +18,10 @@ checkpoint:
 
 train:
   steps: 20000
-  batch_size: 64
+  batch_size: 256
   grad_clip_norm: null
+  lr_warmup_steps: 0
+  lr_warmup_start_factor: 0.1
   save_path: auto
 
 log:

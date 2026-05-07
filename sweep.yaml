@@ -10,22 +10,40 @@ parameters:
     value: sedd
 
   model.d_model:
-    values: [256, 512]
+    value: 256
 
   model.n_layers:
-    values: [4]
+    values: [4, 6]
   
   data:
     value: checkerboard
 
   seed:
-    values: [24]
+    values: [24, 48, 96]
+
+  optimizer.lr:
+    value: 1e-4
+
+  optimizer.weight_decay:
+    value: 0.03
+
+  train.batch_size:
+    value: 256
+
+  train.grad_clip_norm:
+    value: 1.0
+
+  train.lr_warmup_steps:
+    value: 4000
+
+  train.lr_warmup_start_factor:
+    value: 0.1
 
   train.steps:
-    value: 30000
+    value: 40000
 
   eval.interval:
-    value: 30000
+    value: 40000
 
   wandb.group:
     value: sedd_param_sweep

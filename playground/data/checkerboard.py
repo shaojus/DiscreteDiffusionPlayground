@@ -197,6 +197,7 @@ class CheckerboardBinaryStream(IterableDataset):
         reverse=False,
         p_white=0.0,
         rotate_45=True,
+        theta=None,
         random_rotate=True,
         random_shift=True,
         max_shift_frac=1.0,   # max shift as fraction of one checker cell
@@ -231,7 +232,9 @@ class CheckerboardBinaryStream(IterableDataset):
         # Geometry is sampled once here, like loc in your GMMBinaryStream.
         # So torch.manual_seed(cfg.seed) before dataset creation makes this deterministic.
         if self.rotate_45:
-            if self.random_rotate:
+            if theta is not None:
+                self.theta = float(theta)
+            elif self.random_rotate:
                 self.theta = (2.0 * math.pi * torch.rand((), device=self.device)).item()
             else:
                 self.theta = math.pi / 4.0
@@ -301,8 +304,8 @@ class CheckerboardBinaryStream(IterableDataset):
 
     @torch.no_grad()
     def sample_xy(self):
-        if self.rotate_45:
-            return self._sample_rotated_checkerboard_exact(())
+        # For both axis-aligned and rotated cases, sampling is delegated to self.dist.
+        # In rotated mode, self.dist is a _RotatedCheckerboardDist with exact rejection sampling.
         return self.dist.sample()
 
     def __iter__(self):
