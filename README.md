@@ -34,7 +34,6 @@ python playground/train.py data=checkerboard model=ar optimizer.lr=1e-4
 Checkpoints:
 - Save path is controlled by `train.save_path` (default `auto`).
 - With `auto`, checkpoints are named from model config (and include run id if available).
-- Checkpoints now store: `model`, `cfg`, `optimizer`, and `step`.
 
 Modes:
 ```bash
