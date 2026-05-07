@@ -31,16 +31,6 @@ python playground/train.py model=sedd train.steps=20000 eval.interval=1000
 python playground/train.py data=checkerboard model=ar optimizer.lr=1e-4
 ```
 
-## Where Metrics Are Calculated
-
-Evaluation metrics are computed during the evaluation step in `playground/train.py`. Generated binary sequences are decoded back into 2D coordinates, binned on a fixed evaluation grid, and compared against the target distribution.
-
-The main metric code lives in:
-
-```text
-playground/metrics.py
-```
-
 Checkpoints:
 - Save path is controlled by `train.save_path` (default `auto`).
 - With `auto`, checkpoints are named from model config (and include run id if available).
@@ -56,6 +46,16 @@ python playground/train.py run.mode=eval checkpoint.path=ckpts/your_ckpt.pt wand
 
 # 3) Continue training from checkpoint
 python playground/train.py run.mode=train checkpoint.path=ckpts/your_ckpt.pt checkpoint.resume=true train.steps=2000
+```
+
+## Where Metrics Are Calculated
+
+Evaluation metrics are computed during the evaluation step in `playground/train.py`. Generated binary sequences are decoded back into 2D coordinates, binned on a fixed evaluation grid, and compared against the target distribution.
+
+The main metric code lives in:
+
+```text
+playground/metrics.py
 ```
 
 ## Sweeps (W&B + Slurm)
