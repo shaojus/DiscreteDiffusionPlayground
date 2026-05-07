@@ -58,6 +58,8 @@ The main metric code lives in:
 playground/metrics.py
 ```
 
+When W&B logging is enabled, metrics are logged under the `eval/*` namespace.
+
 ## Sweeps (W&B + Slurm)
 
 1. Setup: define the parameter grid in `sweep.yaml`, and set `WANDB_ENTITY` / `WANDB_PROJECT` in `.env`.
