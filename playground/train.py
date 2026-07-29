@@ -17,7 +17,7 @@ from torch.nn.utils import clip_grad_norm_
 from torch.utils.data import DataLoader
 from tqdm import trange
 
-from playground.data.factory import build_dataset
+from playground.data import build_binary_2d_dataset
 from playground.training.checkpoint import (
     load_checkpoint,
     restore_from_checkpoint,
@@ -121,7 +121,7 @@ def main(cfg: DictConfig):
     if run_mode not in {"train", "eval"}:
         raise ValueError(f"Unknown run.mode '{cfg.run.mode}'. Use 'train' or 'eval'.")
 
-    ds = build_dataset(cfg.data, device)
+    ds = build_binary_2d_dataset(cfg.data, device=device)
     L = 2 * int(cfg.data.n_bits)
 
     wandb_enabled = setup_wandb(cfg)

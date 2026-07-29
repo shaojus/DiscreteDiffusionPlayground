@@ -18,6 +18,9 @@ parameters:
   data:
     value: checkerboard
 
+  data.encoding:
+    values: [binary, gray]
+
   seed:
     values: [24, 48, 96]
 

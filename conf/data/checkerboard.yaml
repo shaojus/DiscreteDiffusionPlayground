@@ -2,6 +2,7 @@ _target_: playground.data.checkerboard.CheckerboardBinaryStream
 n_cells: 8
 R: 8.0
 n_bits: 8
+encoding: binary
 interleave: false
 reverse: false
 p_white: 0.0

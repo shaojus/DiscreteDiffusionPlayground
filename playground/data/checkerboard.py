@@ -175,6 +175,9 @@ class _RotatedCheckerboardDist:
         return H
 
 
+from playground.data.encoding import binary_to_gray, gray_to_binary, normalize_encoding
+
+
 class CheckerboardBinaryStream(IterableDataset):
     """
     Checkerboard on [-R, R]^2.
@@ -195,6 +198,7 @@ class CheckerboardBinaryStream(IterableDataset):
         n_bits=8,
         interleave=False,
         reverse=False,
+        encoding="binary",
         p_white=0.0,
         rotate_45=True,
         theta=None,
@@ -209,6 +213,7 @@ class CheckerboardBinaryStream(IterableDataset):
         self.n_bits = int(n_bits)
         self.interleave = bool(interleave)
         self.reverse = bool(reverse)
+        self.encoding = normalize_encoding(encoding)
 
         self.n_cells = int(n_cells)
         assert self.n_cells > 0
@@ -315,6 +320,8 @@ class CheckerboardBinaryStream(IterableDataset):
             # tokenization stays on [-R, R]^2
             u = ((xy + self.R) / (2 * self.R)).clamp(0.0, 1.0 - self._eps)
             v = torch.floor(u * (1 << self.n_bits)).to(torch.long)  # (2,)
+            if self.encoding == "gray":
+                v = binary_to_gray(v)
             bits = ((v.unsqueeze(-1) >> self._shifts) & 1).to(torch.long)  # (2, n_bits)
 
             if self.interleave:
@@ -347,6 +354,10 @@ class CheckerboardBinaryStream(IterableDataset):
         vy = 0
         for b in by:
             vy = (vy << 1) | int(b)
+
+        if self.encoding == "gray":
+            vx = gray_to_binary(vx, self.n_bits)
+            vy = gray_to_binary(vy, self.n_bits)
 
         ux = vx / float(1 << self.n_bits)
         uy = vy / float(1 << self.n_bits)

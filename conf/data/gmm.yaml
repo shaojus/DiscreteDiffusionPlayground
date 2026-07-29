@@ -3,6 +3,7 @@ n_mixes: 8
 R: null
 log_var_scal: 0.0
 n_bits: 8
+encoding: binary
 interleave: false
 reverse: false
 device: cpu
